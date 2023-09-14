@@ -107,11 +107,20 @@ async def transcribe(
         local_cache[unique_key]["existing_speakers"] = []
         local_cache[unique_key]["unique_speakers"] = set()
 
-    audio_path = f"{audio_file.filename}"
-    with open(audio_path, "wb") as f:
+    ct1 = time.time()
+    flac_audio_path = f"{audio_file.filename}"
+    with open(flac_audio_path, "wb") as f:
         f.write(await audio_file.read())
-
+    ct11 = time.time()
+    print("Reading file", (ct11 - ct1))
+    audio_path = "temp_audio.wav"
+    compressed_audio = AudioSegment.from_file(flac_audio_path, format="flac")
+    compressed_audio.export(audio_path, format="wav")
+    ct2 = time.time()
+    print("converting file", ct2 - ct11)
     audio = whisperx.load_audio(audio_path)
+    ct3 = time.time()
+    print("Loading file", (ct3 - ct2))
 
     def diarize_audio():
         t2 = time.time()
