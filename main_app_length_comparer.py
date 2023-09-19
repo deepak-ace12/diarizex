@@ -241,8 +241,12 @@ async def transcribe(
                 for speaker in existing_speakers:
                     print("Lengths", audio_length, speaker.get("audio_length"))
                     if not param_threshold:
-                        if audio_length >= 2000 and speaker.get("audio_length") >= 2000:
+                        if audio_length >= 2300 and speaker.get("audio_length") >= 2300:
                             threshold = 0.75
+                        elif (
+                            audio_length >= 2000 and speaker.get("audio_length") >= 2000
+                        ):
+                            threshold = 0.72
                         elif (
                             audio_length >= 1500 and speaker.get("audio_length") >= 1500
                         ):
