@@ -26,3 +26,35 @@ def audio_to_numpy(file: str, sr: int = 16000):
 def numpy_to_wav(np_array, sample_rate=16000):
     output_filename = "output.wav"
     wavfile.write(output_filename, sample_rate, np_array)
+
+
+"""
+a = audio_to_numpy("/Users/I1597/Downloads/5sec.wav")
+data = a.tolist()
+url = f"http://0.0.0.0:8000/transcribe?diarize=True&unique_key=teset123"
+json_data = json.dumps({"data": data})
+response = requests.post(url, data=json_data)
+response.json()
+"""
+import requests
+import json
+
+
+def execute():
+    abc = []
+    import time
+
+    for i in range(33):
+        tt1 = time.time()
+        a = audio_to_numpy(f"/Users/I1597/Downloads/rahul_chirag/{i}.wav")
+        data = a.tolist()
+        t1 = time.time()
+        url = f"http://3.84.116.137:8000/transcribe?diarize=True&unique_key=teset123"
+        json_data = json.dumps({"data": data})
+        response = requests.post(url, data=json_data)
+        abc.append(response.json())
+        t2 = time.time()
+        print("conversion time", (t1 - tt1))
+        print("total time", (t2 - t1))
+        print("*" * 100)
+    print(abc)

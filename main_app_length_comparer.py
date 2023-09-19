@@ -1,20 +1,21 @@
 import dask
 import whisperx
 import os
-from scipy.io import wavfile
 
 # from dotenv import load_dotenv
 import torchaudio
-from fastapi import FastAPI, File, UploadFile, Query, Request
+from fastapi import FastAPI, File, UploadFile
 import time
 import torch
-from typing import Optional, List
-import numpy as np
+from typing import Optional
+
+
 import nemo.collections.asr as nemo_asr
 from pydub import AudioSegment
+from pydub.utils import mediainfo
 
 # load_dotenv()
-
+max_chunk_size = 15
 app = FastAPI()
 
 if torch.cuda.is_available():
@@ -62,14 +63,20 @@ def is_identical_speaker(audio_1, audio_2, threshold):
     return speaker_model.verify_speakers(audio_1, audio_2, threshold)
 
 
-def cut_wav(input_wav, start_time, end_time, output_wav):
-    audio = AudioSegment.from_wav(input_wav)
+# def cut_wav(input_wav, start_time, end_time, output_wav):
+#     audio = AudioSegment.from_wav(input_wav)
+#     cut_audio = audio[start_time:end_time]
+#     cut_audio.export(output_wav, format="wav")
+
+
+def cut_audio(input_file, start_time, end_time, output_file, audio_format):
+    audio = AudioSegment.from_file(input_file, format=audio_format)
     cut_audio = audio[start_time:end_time]
-    cut_audio.export(output_wav, format="wav")
+    cut_audio.export(output_file, format=audio_format)
 
 
 model = whisperx.load_model(
-    "large-v2", device, compute_type=compute_type, asr_options={"beam_size": 1}
+    "base", device, compute_type=compute_type, asr_options={"beam_size": 1}
 )
 
 local_cache = {}
@@ -77,7 +84,6 @@ local_cache = {}
 
 @app.get("/end_transcription")
 async def get_request(unique_key: str):
-    start_time = time.time()
     existing_speakers = local_cache.pop(unique_key, {}).get("existing_speakers")
     print(existing_speakers)
     if existing_speakers:
@@ -89,28 +95,17 @@ async def get_request(unique_key: str):
     return {"message": f"data for {unique_key} deleted from local cache"}
 
 
-diarize_model = whisperx.DiarizationPipeline(
-    device=device, use_auth_token="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"
-)
-
-from pydantic import BaseModel
-
-
-class NumpyArrayRequest(BaseModel):
-    data: list  # This should match the JSON-compatible format of your NumPy array
+diarize_model = whisperx.DiarizationPipeline(device=device, use_auth_token="")
 
 
 @app.post("/transcribe")
 async def transcribe(
-    data: NumpyArrayRequest,
+    audio_file: UploadFile = File(...),
     unique_key: Optional[str] = None,
     diarize: Optional[bool] = False,
-    threshold: float = 0.7,
+    threshold: Optional[float] = None,
 ):
-    audio = np.array(data.data, dtype=np.float32)
-    audio_path = f"{unique_key}_{int(time.time())*1000}.wav"
-    wavfile.write(audio_path, 16000, audio)
-
+    param_threshold = threshold
     start_time = time.time()
     if local_cache.get(unique_key):
         pass
@@ -123,13 +118,27 @@ async def transcribe(
     # with open(audio_path, "wb") as f:
     #     f.write(await audio_file.read())
 
-    # audio = whisperx.load_audio(audio_nparray)
+    audio_path = f"{audio_file.filename}"
+    with open(audio_path, "wb") as f:
+        f.write(await audio_file.read())
+    audio_info = mediainfo(audio_path)
+    sample_rate = int(audio_info.get("sample_rate", 0))
+    audio_format = audio_info.get("format_name")
+    audio_duration = float(audio_info.get("duration", 0))
+    audio = whisperx.load_audio(audio_path)
+    # from scipy.io import wavfile
+    # ttt1 = time.time()
+    # sample_rate, _ = wavfile.read(audio_path)  # Replace with the path to your WAV audio file
+    print(f"Sample rate: {sample_rate} Hz")
+    # ttt2 = time.time()
+    # print("Sample Rate Time", (ttt2-ttt1))
 
     def diarize_audio():
         t2 = time.time()
         diarize_segments = diarize_model(audio)
         t3 = time.time()
         print("Diarization", (t3 - t2))
+        print("Diarized Segments", diarize_segments)
         return diarize_segments
 
     def transcribe_audio():
@@ -172,6 +181,7 @@ async def transcribe(
             )
         t2 = time.time()
         print("Alignment time", t2 - t1)
+        print("Transcription", result)
         return result
 
     def adjust_speaker_labels(speaker_segments):
@@ -184,15 +194,15 @@ async def transcribe(
 
             # Find the longest consecutive segments of a speaker
             if idx == 0:
-                current_speaker = segment.get("speaker")
-                current_start = segment.get("start")
-                current_end = segment.get("end")
-            elif current_speaker == segment.get("speaker"):
-                current_end = segment.get("end")
+                current_speaker = segment.get("speaker", "")
+                current_start = segment.get("start", "")
+                current_end = segment.get("end", "")
+            elif current_speaker == segment.get("speaker", ""):
+                current_end = segment.get("end", "")
             else:
-                current_speaker = segment.get("speaker")
-                current_start = segment.get("start")
-                current_end = segment.get("end")
+                current_speaker = segment.get("speaker", "")
+                current_start = segment.get("start", "")
+                current_end = segment.get("end", "")
             # replace the saved segment if the current segment length is longer than the saved one
             if current_speaker and current_speaker in combined_speaker_data:
                 if (current_end - current_start) > (
@@ -208,26 +218,64 @@ async def transcribe(
                     "start": current_start,
                     "end": current_end,
                 }
-
+        print("Combined Data", combined_speaker_data)
+        max_similarity_score = 0
+        best_matching_speaker = None
+        set_threshold = 0
         for speaker_label, metadata in combined_speaker_data.items():
-            output_file = "temp_" + speaker_label + str(int(time.time())) + ".wav"
+            output_file = f"temp_{speaker_label}_{str(int(time.time()))}.{audio_format}"
             start_time = int(metadata.get("start") * 1000)
             end_time = int(metadata.get("end") * 1000)
-            cut_wav(audio_path, start_time, end_time, output_file)
+            audio_length = end_time - start_time
+            # cut_wav(audio_path, start_time, end_time, output_file)
+            cut_audio(audio_path, start_time, end_time, output_file, audio_format)
             existing_speakers = local_cache.get(unique_key, {}).get("existing_speakers")
             unique_speakers = local_cache.get(unique_key, {}).get("unique_speakers")
             if len(existing_speakers):
                 match_found = False
                 for speaker in existing_speakers:
-                    if is_identical_speaker(
+                    print("Lengths", audio_length, speaker.get("audio_length"))
+                    if not param_threshold:
+                        if audio_length >= 2000 and speaker.get("audio_length") >= 2000:
+                            threshold = 0.75
+                        elif (
+                            audio_length >= 1500 and speaker.get("audio_length") >= 1500
+                        ):
+                            threshold = 0.7
+                        elif (
+                            audio_length >= 1000 and speaker.get("audio_length") >= 1000
+                        ):
+                            threshold = 0.65
+                        elif audio_length >= 500 and speaker.get("audio_length") >= 500:
+                            threshold = 0.60
+                        else:
+                            threshold = 0.55
+                    if sample_rate < 16000:
+                        threshold -= 0.05
+                    print("Threshold", threshold)
+                    identical, similarity_score = is_identical_speaker(
                         output_file, speaker.get("speaker_audio_file"), threshold
-                    ):
+                    )
+                    if identical:
                         if speaker_label not in replace_speaker:
                             replace_speaker[speaker_label] = speaker.get("speaker_name")
+                            print(
+                                "MATCH FOUND",
+                                similarity_score,
+                                speaker_label,
+                                speaker.get("speaker_name"),
+                            )
                             match_found = True
                             os.remove(output_file)
                             break
                     else:
+                        if similarity_score.item() > max_similarity_score:
+                            print(
+                                f"Most Similar Speaker {speaker.get('speaker_name')} prob: {similarity_score}"
+                            )
+                            max_similarity_score = similarity_score.item()
+                            best_matching_speaker = speaker.get("speaker_name")
+                            set_threshold = threshold
                         print(
                             "non identical",
                             output_file,
@@ -235,18 +283,37 @@ async def transcribe(
                         )
                 else:
                     if not match_found:
-                        speaker_name = f"speaker__{len(unique_speakers)}"
-                        print("Match Not found block", speaker_name)
-                        existing_speakers.append(
-                            {
-                                "speaker_id": len(existing_speakers) + 1,
-                                "speaker_name": speaker_name,
-                                "speaker_audio_file": output_file,
-                            }
-                        )
-                        print("Unique Speakers", unique_speakers)
-                        replace_speaker[speaker_label] = speaker_name
-                        unique_speakers.add(speaker_name)
+                        if len(existing_speakers) >= 2 and (
+                            (
+                                set_threshold >= 0.60
+                                and set_threshold - 0.05 <= max_similarity_score
+                            )
+                            or (
+                                audio_length <= 300
+                                and round(max_similarity_score, 1) >= 0.5
+                            )
+                        ):
+                            print(
+                                "Adjusting the threshold",
+                                set_threshold,
+                                max_similarity_score,
+                                best_matching_speaker,
+                            )
+                            replace_speaker[speaker_label] = best_matching_speaker
+                        else:
+                            speaker_name = f"speaker__{len(unique_speakers)}"
+                            print("Match Not found block", speaker_name)
+                            existing_speakers.append(
+                                {
+                                    "speaker_id": len(existing_speakers) + 1,
+                                    "speaker_name": speaker_name,
+                                    "speaker_audio_file": output_file,
+                                    "audio_length": audio_length,
+                                }
+                            )
+                            print("Unique Speakers", unique_speakers)
+                            replace_speaker[speaker_label] = speaker_name
+                            unique_speakers.add(speaker_name)
             else:
                 speaker_name = f"speaker__{len(unique_speakers)}"
                 existing_speakers.append(
@@ -254,6 +321,7 @@ async def transcribe(
                         "speaker_id": len(existing_speakers) + 1,
                         "speaker_name": speaker_name,
                         "speaker_audio_file": output_file,
+                        "audio_length": audio_length,
                     }
                 )
                 print("Unique Speakers ELSE BLOCK", unique_speakers)
@@ -261,6 +329,7 @@ async def transcribe(
                 unique_speakers.add(speaker_name)
 
         if replace_speaker:
+            print("REPLACE SPEAKER 111111111", replace_speaker)
             for script in speaker_segments:
                 script.pop("words", "")
                 script["speaker"] = replace_speaker.get(script.get("speaker"))
@@ -281,8 +350,14 @@ async def transcribe(
             t22 = time.time()
             print("Assign word time", (t22 - t11))
             speaker_segments = dialogues["segments"]
+            print("Speaker_Segments", speaker_segments)
             t1 = time.time()
-            result = adjust_speaker_labels(speaker_segments)
+            if audio_duration < max_chunk_size:
+                result = adjust_speaker_labels(speaker_segments)
+            else:
+                for script in speaker_segments:
+                    script.pop("words", "")
+                result = speaker_segments
             t2 = time.time()
             print("Label Adjust Time", (t2 - t1))
             os.remove(audio_path)
