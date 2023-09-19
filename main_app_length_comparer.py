@@ -197,12 +197,15 @@ async def transcribe(
                 current_speaker = segment.get("speaker", "")
                 current_start = segment.get("start", "")
                 current_end = segment.get("end", "")
+                current_text = segment.get("text", "")
             elif current_speaker == segment.get("speaker", ""):
                 current_end = segment.get("end", "")
+                current_text = current_text + " " + segment.get("text")
             else:
                 current_speaker = segment.get("speaker", "")
                 current_start = segment.get("start", "")
                 current_end = segment.get("end", "")
+                current_text = segment.get("text", "")
             # replace the saved segment if the current segment length is longer than the saved one
             if current_speaker and current_speaker in combined_speaker_data:
                 if (current_end - current_start) > (
@@ -212,11 +215,13 @@ async def transcribe(
                     combined_speaker_data[current_speaker] = {
                         "start": current_start,
                         "end": current_end,
+                        "text": current_text,
                     }
             else:
                 combined_speaker_data[current_speaker] = {
                     "start": current_start,
                     "end": current_end,
+                    "text": current_text,
                 }
         print("Combined Data", combined_speaker_data)
         max_similarity_score = 0
@@ -261,6 +266,7 @@ async def transcribe(
                             replace_speaker[speaker_label] = speaker.get("speaker_name")
                             print(
                                 "MATCH FOUND",
+                                metadata.get("text"),
                                 similarity_score,
                                 speaker_label,
                                 speaker.get("speaker_name"),
@@ -273,13 +279,16 @@ async def transcribe(
                             print(
                                 f"Most Similar Speaker {speaker.get('speaker_name')} prob: {similarity_score}"
                             )
-                            max_similarity_score = similarity_score.item()
+                            max_similarity_score = round(similarity_score.item(), 2)
                             best_matching_speaker = speaker.get("speaker_name")
                             set_threshold = threshold
                         print(
                             "non identical",
+                            metadata.get("text"),
                             output_file,
                             speaker.get("speaker_audio_file"),
+                            speaker_label,
+                            similarity_score,
                         )
                 else:
                     if not match_found:
@@ -292,9 +301,14 @@ async def transcribe(
                                 audio_length <= 300
                                 and round(max_similarity_score, 1) >= 0.5
                             )
+                            or (
+                                len(metadata.get("text", "").strip().split()) <= 2
+                                and round(max_similarity_score, 2) >= 0.55
+                            )
                         ):
                             print(
                                 "Adjusting the threshold",
+                                metadata.get("text"),
                                 set_threshold,
                                 max_similarity_score,
                                 best_matching_speaker,
@@ -302,7 +316,13 @@ async def transcribe(
                             replace_speaker[speaker_label] = best_matching_speaker
                         else:
                             speaker_name = f"speaker__{len(unique_speakers)}"
-                            print("Match Not found block", speaker_name)
+                            print(
+                                "Match Not found block",
+                                metadata.get("text"),
+                                speaker_name,
+                                max_similarity_score,
+                                best_matching_speaker,
+                            )
                             existing_speakers.append(
                                 {
                                     "speaker_id": len(existing_speakers) + 1,
