@@ -267,7 +267,11 @@ async def transcribe(
                     )
                     if identical:
                         if speaker_label not in replace_speaker:
-                            replace_speaker[speaker_label] = speaker.get("speaker_name")
+                            # replace_speaker[speaker_label] = speaker.get("speaker_name")
+                            replace_speaker[speaker_label] = {
+                                "speaker": speaker.get("speaker_name"),
+                                "is_new_speaker": False,
+                            }
                             print(
                                 "MATCH FOUND",
                                 metadata.get("text"),
@@ -317,7 +321,11 @@ async def transcribe(
                                 max_similarity_score,
                                 best_matching_speaker,
                             )
-                            replace_speaker[speaker_label] = best_matching_speaker
+                            # replace_speaker[speaker_label] = best_matching_speaker
+                            replace_speaker[speaker_label] = {
+                                "speaker": best_matching_speaker,
+                                "is_new_speaker": False,
+                            }
                         else:
                             speaker_name = f"speaker__{len(unique_speakers)}"
                             print(
@@ -336,7 +344,19 @@ async def transcribe(
                                 }
                             )
                             print("Unique Speakers", unique_speakers)
-                            replace_speaker[speaker_label] = speaker_name
+                            # replace_speaker[speaker_label] = speaker_name
+                            if len(existing_speakers) >= 2:
+                                replace_speaker[speaker_label] = {
+                                    "speaker": speaker_name,
+                                    "is_new_speaker": False,
+                                }
+                            else:
+                                replace_speaker[speaker_label] = {
+                                    "speaker": speaker_name,
+                                    "is_new_speaker": True,
+                                    "best_matched_speaker": best_matching_speaker,
+                                    "probability": max_similarity_score,
+                                }
                             unique_speakers.add(speaker_name)
             else:
                 speaker_name = f"speaker__{len(unique_speakers)}"
@@ -349,14 +369,29 @@ async def transcribe(
                     }
                 )
                 print("Unique Speakers ELSE BLOCK", unique_speakers)
-                replace_speaker[speaker_label] = speaker_name
+                # replace_speaker[speaker_label] = speaker_name
+                replace_speaker[speaker_label] = {
+                    "speaker": speaker_name,
+                    "is_new_speaker": False,
+                }
                 unique_speakers.add(speaker_name)
 
+        # if replace_speaker:
+        #     print("REPLACE SPEAKER 111111111", replace_speaker)
+        #     for script in speaker_segments:
+        #         script.pop("words", "")
+        #         script["speaker"] = replace_speaker.get(script.get("speaker"))
+
         if replace_speaker:
-            print("REPLACE SPEAKER 111111111", replace_speaker)
             for script in speaker_segments:
+                spkr = replace_speaker.get(script.get("speaker"))
                 script.pop("words", "")
-                script["speaker"] = replace_speaker.get(script.get("speaker"))
+                script["speaker"] = spkr.get("speaker")
+                if spkr.get("is_new_speaker"):
+                    script["is_new_speaker"] = True
+                    script["best_matched_speaker"] = spkr.get("best_matched_speaker")
+                    script["probability"] = spkr.get("probability")
+
         print("speaker_segments", speaker_segments)
         return speaker_segments
 
