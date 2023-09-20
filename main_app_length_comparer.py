@@ -18,6 +18,7 @@ from pydub.utils import mediainfo
 max_chunk_size = 15
 app = FastAPI()
 
+
 if torch.cuda.is_available():
     device = "cuda"
     batch_size = 32
@@ -30,8 +31,13 @@ else:
 
 model_name_en = "WAV2VEC2_ASR_BASE_960H"
 model_name_es = "VOXPOPULI_ASR_BASE_10K_ES"
-
 pipeline_type = "torchaudio"
+nemo_speaker_model = "nvidia/speakerverification_en_titanet_large"
+whisperx_model_size = "base"
+whisperx_beam_size = 1
+max_comparable_audio_length = 2300
+min_comparable_audio_length = 500
+min_similarity_threshold = 0.55
 
 bundle_en = torchaudio.pipelines.__dict__[model_name_en]
 align_model_en = bundle_en.get_model().to(device)
@@ -55,7 +61,7 @@ align_metadata_es = {
 }
 
 speaker_model = nemo_asr.models.EncDecSpeakerLabelModel.from_pretrained(
-    "nvidia/speakerverification_en_titanet_large"
+    nemo_speaker_model
 )
 
 
@@ -76,7 +82,10 @@ def cut_audio(input_file, start_time, end_time, output_file, audio_format):
 
 
 model = whisperx.load_model(
-    "base", device, compute_type=compute_type, asr_options={"beam_size": 1}
+    whisperx_model_size,
+    device,
+    compute_type=compute_type,
+    asr_options={"beam_size": whisperx_beam_size},
 )
 
 local_cache = {}
@@ -103,9 +112,8 @@ async def transcribe(
     audio_file: UploadFile = File(...),
     unique_key: Optional[str] = None,
     diarize: Optional[bool] = False,
-    threshold: Optional[float] = None,
+    max_num_speakers: Optional[bool] = 2,
 ):
-    param_threshold = threshold
     start_time = time.time()
     if local_cache.get(unique_key):
         pass
@@ -135,11 +143,11 @@ async def transcribe(
 
     def diarize_audio():
         t2 = time.time()
-        diarize_segments = diarize_model(audio)
+        diarized_segments = diarize_model(audio)
         t3 = time.time()
         print("Diarization", (t3 - t2))
-        print("Diarized Segments", diarize_segments)
-        return diarize_segments
+        print("Diarized Segments", diarized_segments)
+        return diarized_segments
 
     def transcribe_audio():
         t11 = time.time()
@@ -228,7 +236,9 @@ async def transcribe(
         best_matching_speaker = None
         set_threshold = 0
         for speaker_label, metadata in combined_speaker_data.items():
-            output_file = f"temp_{speaker_label}_{str(int(time.time()))}.{audio_format}"
+            output_file = (
+                f"SAMPLE_{speaker_label}_{str(int(time.time()))}.{audio_format}"
+            )
             start_time = int(metadata.get("start") * 1000)
             end_time = int(metadata.get("end") * 1000)
             audio_length = end_time - start_time
@@ -240,25 +250,36 @@ async def transcribe(
                 match_found = False
                 for speaker in existing_speakers:
                     print("Lengths", audio_length, speaker.get("audio_length"))
-                    if not param_threshold:
-                        if audio_length >= 2300 and speaker.get("audio_length") >= 2300:
-                            threshold = 0.75
-                        elif (
-                            audio_length >= 2000 and speaker.get("audio_length") >= 2000
-                        ):
-                            threshold = 0.72
-                        elif (
-                            audio_length >= 1500 and speaker.get("audio_length") >= 1500
-                        ):
-                            threshold = 0.7
-                        elif (
-                            audio_length >= 1000 and speaker.get("audio_length") >= 1000
-                        ):
-                            threshold = 0.65
-                        elif audio_length >= 500 and speaker.get("audio_length") >= 500:
-                            threshold = 0.60
-                        else:
-                            threshold = 0.55
+                    if (
+                        audio_length >= max_comparable_audio_length
+                        and speaker.get("audio_length") >= max_comparable_audio_length
+                    ):
+                        threshold = 0.75
+                    elif (
+                        audio_length >= min_comparable_audio_length * 4
+                        and speaker.get("audio_length")
+                        >= min_comparable_audio_length * 4
+                    ):
+                        threshold = 0.72
+                    elif (
+                        audio_length >= min_comparable_audio_length * 3
+                        and speaker.get("audio_length")
+                        >= min_comparable_audio_length * 3
+                    ):
+                        threshold = 0.7
+                    elif (
+                        audio_length >= min_comparable_audio_length * 2
+                        and speaker.get("audio_length")
+                        >= min_comparable_audio_length * 2
+                    ):
+                        threshold = 0.65
+                    elif (
+                        audio_length >= min_comparable_audio_length
+                        and speaker.get("audio_length") >= min_comparable_audio_length
+                    ):
+                        threshold = 0.6
+                    else:
+                        threshold = 0.55
                     if sample_rate < 16000:
                         threshold -= 0.05
                     print("Threshold", threshold)
@@ -300,7 +321,7 @@ async def transcribe(
                         )
                 else:
                     if not match_found:
-                        if len(existing_speakers) >= 2 and (
+                        if len(existing_speakers) >= max_num_speakers and (
                             (
                                 set_threshold >= 0.60
                                 and set_threshold - 0.05 <= max_similarity_score
@@ -345,7 +366,7 @@ async def transcribe(
                             )
                             print("Unique Speakers", unique_speakers)
                             # replace_speaker[speaker_label] = speaker_name
-                            if len(existing_speakers) >= 2:
+                            if len(existing_speakers) <= max_num_speakers:
                                 replace_speaker[speaker_label] = {
                                     "speaker": speaker_name,
                                     "is_new_speaker": False,
@@ -399,12 +420,12 @@ async def transcribe(
         if diarize:
             delay_diarize = dask.delayed(diarize_audio)()
             delay_transcribe = dask.delayed(transcribe_audio)()
-            diarize_segments, transcribed_segments = dask.compute(
+            diarized_segments, transcribed_segments = dask.compute(
                 delay_diarize, delay_transcribe
             )
             t11 = time.time()
             dialogues = whisperx.assign_word_speakers(
-                diarize_segments, transcribed_segments
+                diarized_segments, transcribed_segments
             )
             t22 = time.time()
             print("Assign word time", (t22 - t11))
