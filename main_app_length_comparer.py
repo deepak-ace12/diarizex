@@ -347,6 +347,27 @@ async def transcribe(
                                 "speaker": best_matching_speaker,
                                 "is_new_speaker": False,
                             }
+                        elif (
+                            audio_length < 500
+                            or len(metadata.get("text", "").strip().split()) <= 2
+                        ):
+                            print(
+                                "Audio too small to save for sampling",
+                                metadata.get("text"),
+                                set_threshold,
+                                max_similarity_score,
+                                best_matching_speaker,
+                            )
+                            replace_speaker[speaker_label] = {
+                                "speaker": "unknown",
+                                "is_new_speaker": True,
+                                "best_matched_speaker": best_matching_speaker
+                                if len(existing_speakers) >= 2
+                                else "unknown",
+                                "probability": max_similarity_score
+                                if len(existing_speakers) >= 2
+                                else 0,
+                            }
                         else:
                             speaker_name = f"speaker__{len(unique_speakers)}"
                             print(
