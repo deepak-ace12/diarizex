@@ -8,7 +8,7 @@ from fastapi import FastAPI, File, UploadFile
 import time
 import torch
 from typing import Optional
-
+import numpy as np
 
 import nemo.collections.asr as nemo_asr
 from pydub import AudioSegment
@@ -104,7 +104,100 @@ async def get_request(unique_key: str):
     return {"message": f"data for {unique_key} deleted from local cache"}
 
 
-diarize_model = whisperx.DiarizationPipeline(device=device, use_auth_token="")
+diarize_model = whisperx.DiarizationPipeline(
+    device=device, use_auth_token="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"
+)
+
+
+def get_word_level_confidence_score(transcript_result):
+    transcription_confidence_score = []
+    transcript_segments = transcript_result["word_segments"]
+    for word in transcript_segments:
+        transcription_confidence_score.append(word.get("score", 0))
+    arr = np.array(transcription_confidence_score)
+    percentage_above_0_9 = np.sum(arr >= 0.9) / len(arr) * 100
+    percentage_above_0_8 = np.sum(arr >= 0.8) / len(arr) * 100
+    percentage_above_0_7 = np.sum(arr >= 0.7) / len(arr) * 100
+    percentage_above_0_6 = np.sum(arr >= 0.6) / len(arr) * 100
+    percentage_above_0_5 = np.sum(arr >= 0.5) / len(arr) * 100
+    percentage_below_0_5 = np.sum(arr < 0.5) / len(arr) * 100
+    average = np.mean(arr)
+    return {
+        "percentage_above_0_9": round(percentage_above_0_9, 2),
+        "percentage_above_0_8": round(percentage_above_0_8, 2),
+        "percentage_above_0_7": round(percentage_above_0_7, 2),
+        "percentage_above_0_6": round(percentage_above_0_6, 2),
+        "percentage_above_0_5": round(percentage_above_0_5, 2),
+        "percentage_below_0_5": round(percentage_below_0_5, 2),
+        "average": round(average, 2),
+    }
+
+
+def assign_word_speakers(diarize_df, transcript_result, fill_nearest=False):
+    transcript_segments = transcript_result["segments"]
+    for seg in transcript_segments:
+        transcription_confidence_score = []
+        # assign speaker to segment (if any)
+        diarize_df["intersection"] = np.minimum(
+            diarize_df["end"], seg["end"]
+        ) - np.maximum(diarize_df["start"], seg["start"])
+        diarize_df["union"] = np.maximum(diarize_df["end"], seg["end"]) - np.minimum(
+            diarize_df["start"], seg["start"]
+        )
+        # remove no hit, otherwise we look for closest (even negative intersection...)
+        if not fill_nearest:
+            dia_tmp = diarize_df[diarize_df["intersection"] > 0]
+        else:
+            dia_tmp = diarize_df
+        if len(dia_tmp) > 0:
+            # sum over speakers
+            speaker = (
+                dia_tmp.groupby("speaker")["intersection"]
+                .sum()
+                .sort_values(ascending=False)
+                .index[0]
+            )
+            seg["speaker"] = speaker
+
+        # assign speaker to words
+        if "words" in seg:
+            for word in seg["words"]:
+                transcription_confidence_score.append(word.get("score", 0))
+                if "start" in word:
+                    diarize_df["intersection"] = np.minimum(
+                        diarize_df["end"], word["end"]
+                    ) - np.maximum(diarize_df["start"], word["start"])
+                    diarize_df["union"] = np.maximum(
+                        diarize_df["end"], word["end"]
+                    ) - np.minimum(diarize_df["start"], word["start"])
+                    # remove no hit
+                    if not fill_nearest:
+                        dia_tmp = diarize_df[diarize_df["intersection"] > 0]
+                    else:
+                        dia_tmp = diarize_df
+                    if len(dia_tmp) > 0:
+                        # sum over speakers
+                        speaker = (
+                            dia_tmp.groupby("speaker")["intersection"]
+                            .sum()
+                            .sort_values(ascending=False)
+                            .index[0]
+                        )
+                        word["speaker"] = speaker
+            arr = np.array(transcription_confidence_score)
+            percentage_above_0_9 = np.sum(arr > 0.9) / len(arr) * 100
+            percentage_above_0_8 = np.sum(arr > 0.8) / len(arr) * 100
+            percentage_above_0_7 = np.sum(arr > 0.7) / len(arr) * 100
+            percentage_below_0_7 = np.sum(arr < 0.7) / len(arr) * 100
+            average = np.mean(arr)
+            seg["scores"] = {
+                "percentage_above_0_9": percentage_above_0_9,
+                "percentage_above_0_8": percentage_above_0_8,
+                "percentage_above_0_7": percentage_above_0_7,
+                "percentage_below_0_7": percentage_below_0_7,
+                "average": average,
+            }
+    return (transcript_result,)
 
 
 @app.post("/transcribe")
