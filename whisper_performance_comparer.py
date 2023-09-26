@@ -7,6 +7,8 @@ import time
 import torch
 import numpy as np
 from pydub.utils import mediainfo
+from pydub import AudioSegment
+
 
 # load_dotenv()
 app = FastAPI()
@@ -57,10 +59,11 @@ async def transcribe(
     beam_size: int,
     temperature: float,
     no_speech_threshold: float,
+    sample_rate: int,
     model_size: str = "large-v2",
 ):
     print("model_size", model_size)
-
+    local_cache["sample_rate"] = sample_rate
     local_cache["model"] = whisperx.load_model(
         model_size,
         device,
@@ -71,7 +74,7 @@ async def transcribe(
             "temperatures": [temperature],
         },
     )
-    return "model loaded successfull"
+    return f"model loaded successfull {model_size}"
 
 
 def get_word_level_confidence_score(transcript_result):
@@ -106,8 +109,16 @@ async def transcribe(audio_file: UploadFile = File(...), unique_key: str = None)
     with open(audio_path, "wb") as f:
         f.write(await audio_file.read())
     audio_info = mediainfo(audio_path)
-    sample_rate = int(audio_info.get("sample_rate", 0))
     audio_format = audio_info.get("format_name")
+    sample_rate = int(audio_info.get("sample_rate", 0))
+    if sample_rate != local_cache.get("sample_rate"):
+        print("Sample Rate Not Equel")
+        _audio = AudioSegment.from_file(audio_path)
+        new_sample_rate = local_cache.get("sample_rate")
+        audio = _audio.set_frame_rate(new_sample_rate)
+        audio.export(audio_path, format=audio_format)
+        sample_rate = local_cache.get("sample_rate")
+
     audio_duration = float(audio_info.get("duration", 0))
     audio = whisperx.load_audio(audio_path)
     print(f"Sample rate: {sample_rate} Hz")
@@ -152,8 +163,6 @@ async def transcribe(audio_file: UploadFile = File(...), unique_key: str = None)
         torch.cuda.empty_cache()
         scores = get_word_level_confidence_score(result)
         output = {
-            "model": whisperx_model_size,
-            "beam_size": whisperx_beam_size,
             "device": device,
             "batch_size": batch_size,
             "compute_type": compute_type,
@@ -165,8 +174,7 @@ async def transcribe(audio_file: UploadFile = File(...), unique_key: str = None)
         }
         output.update(scores)
         output["transcript"] = result
-        print("output", output)
-        return output
+        return " ".join([segment.get("text") for segment in result.get("segments")])
     except Exception as ex:
         import traceback
 

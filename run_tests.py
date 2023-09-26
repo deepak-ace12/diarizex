@@ -5,7 +5,6 @@ from fuzzywuzzy import fuzz
 import numpy as np
 import os
 
-rows = []
 
 audios = [
     "/Users/I1597/Downloads/Data/Audio Recordings/CAR0001.mp3",
@@ -292,7 +291,23 @@ audios = [
     "/Users/I1597/Downloads/Data/Audio Recordings/RES0217.mp3",
 ]
 
-audios = ["/Users/I1597/Downloads/Data/Audio Recordings/GAS0007.mp3"]
+audios = [
+    "/Users/I1597/Downloads/Data/Audio Recordings/CAR0001.mp3",
+    "/Users/I1597/Downloads/Data/Audio Recordings/CAR0002.mp3",
+    "/Users/I1597/Downloads/Data/Audio Recordings/CAR0003.mp3",
+    "/Users/I1597/Downloads/Data/Audio Recordings/GAS0003.mp3",
+    "/Users/I1597/Downloads/Data/Audio Recordings/GAS0004.mp3",
+    "/Users/I1597/Downloads/Data/Audio Recordings/GAS0007.mp3",
+    "/Users/I1597/Downloads/Data/Audio Recordings/MSK0001.mp3",
+    "/Users/I1597/Downloads/Data/Audio Recordings/MSK0003.mp3",
+    "/Users/I1597/Downloads/Data/Audio Recordings/MSK0004.mp3",
+    "/Users/I1597/Downloads/Data/Audio Recordings/RES0001.mp3",
+    "/Users/I1597/Downloads/Data/Audio Recordings/RES0003.mp3",
+    "/Users/I1597/Downloads/Data/Audio Recordings/RES0127.mp3",
+    "/Users/I1597/Downloads/Data/Audio Recordings/RES0128.mp3",
+    "/Users/I1597/Downloads/Data/Audio Recordings/MSK0042.mp3",
+    "/Users/I1597/Downloads/Data/Audio Recordings/GEN0001.mp3",
+]
 
 # Example lists
 
@@ -318,126 +333,288 @@ def get_score_percentage(confidence_score, key):
 
 
 temperatures = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
-model_sizes = ["medium", "large-v1", "large_v2"]
+model_sizes = ["medium"]
 nsts = [0.2, 0.4, 0.6, 0.8]
-
-
-file_dir = "/"
-config_key = "temp"
-for idx, audio in enumerate(audios):
-    print(idx)
-    unique_key = audio.split("/")[-1].split(".")[0]
-    url = f"http://3.84.116.137:8000/transcribe?unique_key={unique_key}"
-    files = [("audio_file", ("file", open(audio, "rb"), "application/octet-stream"))]
-    response = requests.request("POST", url, headers={}, data={}, files=files)
-    result = response.json()
-    transcript = result.pop("transcript")
-    config_key = f"{result.get('model')}_b{result.get('beam_size')}_sr{result.get('sample_rate')}_t1_nst0"
-    file_dir = f"/Users/I1597/Downloads/performance/{config_key}"
-    if not os.path.exists(file_dir):
-        os.makedirs(file_dir)
-
-    file_path = os.path.join(file_dir, "transcript.json")
-
-    # Option 1: Using json.dump() to write to a file
-    json_string = json.dumps(
-        transcript, indent=2
-    )  # The 'indent' parameter adds formatting for readability
-    with open(file_path, "w") as json_file:
-        json_file.write(json_string)
-    result["transcript_file"] = file_path
-    result["audio_file"] = audio
-
-    with open(
-        f"/Users/I1597/Downloads/Data/original_transcription/{unique_key}.txt", "r"
-    ) as file:
-        file_contents = file.read()
-
-    txt = ""
-    for line in file_contents.splitlines():
-        if line:
-            txt += line.replace("P: ", " ").replace("D: ", " ")
-
-    fuzzy_unmatched_score = []
-    matched_words = []
-    mismatched_words = []
-    transcript_segments = transcript.get("word_segments")
-    original_segments = txt.strip().split()
-    for i, segment in enumerate(transcript_segments):
-        word1 = segment.get("word")
-        matched = False
-        best_matched_word = ""
-        max_similarity_score = 0
-
-        for j in range(max(i - 3, 0), min(i + 3 + 1, len(original_segments))):
-            word2 = original_segments[j]
-            if word1.lower() == word2.lower():
-                matched = True
-                i = j
-                break
-            else:
-                og_text = " ".join(
-                    [
-                        original_segments[index]
-                        for index in range(
-                            max(i - 2, 0), min(i + 2 + 1, len(original_segments))
+beam_sizes = [1, 5]
+for model_size in model_sizes:
+    for temperature in temperatures:
+        for beam_size in beam_sizes:
+            for nst in nsts:
+                try:
+                    rows = []
+                    init_url = f"http://3.84.116.137:8000/init?beam_size={beam_size}&temperature={temperature}&no_speech_threshold={nst}&sample_rate=16000&model_size={model_size}"
+                    init_response = requests.request(
+                        "POST", init_url, headers={}, data={}
+                    )
+                    if init_response.ok:
+                        print(
+                            "Model Loaded Successfully",
+                            model_size,
+                            temperature,
+                            beam_size,
                         )
-                    ]
-                )
-                ts_text = " ".join(
-                    [
-                        transcript_segments[index].get("word")
-                        for index in range(
-                            max(i - 2, 0), min(i + 2 + 1, len(transcript_segments))
-                        )
-                    ]
-                )
-                match_ratio = fuzz.ratio(word1.lower(), word2.lower())
-                # if match_ratio >= 80:  avoid punctuation
-                #     matched = True
-                if match_ratio > max_similarity_score:
-                    max_similarity_score = match_ratio
-                    best_matched_word = word2
+                        file_dir = "/"
+                        config_key = "temp"
+                        for idx, audio in enumerate(audios):
+                            print(idx)
+                            result = {
+                                "model": model_size,
+                                "temperature": temperature,
+                                "beam_size": beam_size,
+                            }
+                            unique_key = audio.split("/")[-1].split(".")[0]
 
-        if matched:
-            matched_words.append(segment)
-        else:
-            segment["best_matched_word"] = best_matched_word
-            segment["max_similarity_score"] = max_similarity_score
-            segment["original"] = og_text
-            segment["transcript"] = ts_text
-            mismatched_words.append(segment)
-            fuzzy_unmatched_score.append(max_similarity_score / 100)
+                            txt = ""
+                            try:
+                                with open(
+                                    f"/Users/I1597/Downloads/Data/original_transcription/{unique_key}.txt",
+                                    "r",
+                                ) as file:
+                                    file_contents = file.read()
+                                    for line in file_contents.splitlines():
+                                        if line:
+                                            txt += line.replace("P: ", " ").replace(
+                                                "D: ", " "
+                                            )
+                            except Exception as ex:
+                                print("Read Error", ex)
+                                continue
+                            try:
+                                url = f"http://3.84.116.137:8000/transcribe?unique_key={unique_key}"
+                                files = [
+                                    (
+                                        "audio_file",
+                                        (
+                                            "file",
+                                            open(audio, "rb"),
+                                            "application/octet-stream",
+                                        ),
+                                    )
+                                ]
+                                response = requests.request(
+                                    "POST", url, headers={}, data={}, files=files
+                                )
+                                result.update(response.json())
+                                transcript = result.pop("transcript")
+                                config_key = f"{model_size}_b{beam_size}_sr{result.get('sample_rate')}_t{str(temperature).replace('.', '')}_nst{str(nst).replace('.', '')}"
+                                file_dir = f"/Users/I1597/Downloads/performance_med/{config_key}"
+                                if not os.path.exists(file_dir):
+                                    os.makedirs(file_dir)
 
-    matched_confidence_score = []
-    mismatched_confidence_score = []
+                                file_path = os.path.join(
+                                    file_dir,
+                                    f"{unique_key}_{config_key}_transcript.json",
+                                )
 
-    for word in matched_words:
-        matched_confidence_score.append(word.get("score", 0))
-    for word in mismatched_words:
-        mismatched_confidence_score.append(word.get("score", 0))
+                                # Option 1: Using json.dump() to write to a file
+                                json_string = json.dumps(
+                                    transcript, indent=2
+                                )  # The 'indent' parameter adds formatting for readability
+                                with open(file_path, "w") as json_file:
+                                    json_file.write(json_string)
+                                result["transcript_file"] = file_path
+                                result["audio_file"] = audio
 
-    result.update(get_score_percentage(matched_confidence_score, "matched"))
-    result["total_matched (%)"] = (len(matched_words) / len(transcript_segments)) * 100
-    result.update(get_score_percentage(mismatched_confidence_score, "mismatched"))
-    result["total_mismatched (%)"] = (
-        len(mismatched_words) / len(transcript_segments)
-    ) * 100
+                                fuzzy_unmatched_score = []
+                                matched_words = []
+                                mismatched_words = []
+                                matched_wo_punc = []
+                                transcript_segments = transcript.get("word_segments")
+                                original_segments = (
+                                    txt.replace("uh", "")
+                                    .replace("Uh", "")
+                                    .replace("uh,", "")
+                                    .replace("Uh,", "")
+                                    .replace("um", "")
+                                    .replace("Um", "")
+                                    .replace("um,", "")
+                                    .replace("Um,", "")
+                                    .strip()
+                                    .split()
+                                )
+                                i = 0
+                                j = 0
+                                while i < len(transcript_segments):
+                                    # for i, segment in enumerate(transcript_segments):
+                                    segment = transcript_segments[i]
+                                    word1 = segment.get("word")
+                                    if word1 in [
+                                        "um",
+                                        "Um",
+                                        "um,",
+                                        "Um,",
+                                        "Uh",
+                                        "uh",
+                                        "Uh,",
+                                        "uh,",
+                                    ]:
+                                        i += 1
+                                        continue
+                                    matched = False
+                                    best_matched_word = ""
+                                    max_similarity_score = 0
+                                    for k in range(
+                                        max(j - 5, 0),
+                                        min(j + 15 + 1, len(original_segments)),
+                                    ):
+                                        word2 = original_segments[k]
+                                        if word1.lower() == "ok":
+                                            word1 = "okay"
+                                        if word2.lower() == "ok":
+                                            word2 = "okay"
 
-    result.update(get_score_percentage(fuzzy_unmatched_score, "fuzzy_unmatched"))
+                                        if word1.lower().replace("?", "").replace(
+                                            ",", ""
+                                        ).replace(".", "") == word2.lower().replace(
+                                            "?", ""
+                                        ).replace(
+                                            ",", ""
+                                        ).replace(
+                                            ".", ""
+                                        ):
+                                            segment["compared_word"] = word2
+                                            matched_wo_punc.append(segment)
+                                        if word1.lower() == word2.lower():
+                                            matched = True
+                                            break
+                                        else:
 
-    mismatched_file_path = os.path.join(file_dir, "mismatched_transcript.json")
-    # Option 1: Using json.dump() to write to a file
-    json_string_mismatched = json.dumps(
-        mismatched_words, indent=2
-    )  # The 'indent' parameter adds formatting for readability
-    with open(mismatched_file_path, "w") as json_file:
-        json_file.write(json_string_mismatched)
+                                            match_ratio = fuzz.ratio(
+                                                word1.lower(), word2.lower()
+                                            )
+                                            # if match_ratio >= 80:  avoid punctuation
+                                            #     matched = True
+                                            if match_ratio > max_similarity_score:
+                                                max_similarity_score = match_ratio
+                                                best_matched_word = word2
 
-    rows.append(result)
+                                        # import ipdb; ipdb.set_trace()
+                                    og_text = " ".join(
+                                        [
+                                            original_segments[index]
+                                            for index in range(
+                                                max(j - 5, 0),
+                                                min(j + 15 + 1, len(original_segments)),
+                                            )
+                                        ]
+                                    )
+                                    ts_text = " ".join(
+                                        [
+                                            transcript_segments[index].get("word")
+                                            for index in range(
+                                                max(i - 5, 0),
+                                                min(
+                                                    i + 15 + 1, len(transcript_segments)
+                                                ),
+                                            )
+                                        ]
+                                    )
 
+                                    if matched:
+                                        matched_words.append(segment)
+                                        i += 1
+                                        j += 1
+                                    else:
+                                        segment["best_matched_word"] = best_matched_word
+                                        segment[
+                                            "max_similarity_score"
+                                        ] = max_similarity_score
+                                        segment["original"] = og_text
+                                        segment["transcript"] = ts_text
+                                        mismatched_words.append(segment)
+                                        fuzzy_unmatched_score.append(
+                                            max_similarity_score / 100
+                                        )
+                                        i += 1
+                                        j += 1
 
-df = pd.DataFrame(rows)
-# df["transcript"] = json.dumps(transcript)
-excel_file = f"{file_dir}/output.xlsx"
-df.to_excel(excel_file, sheet_name=config_key, index=False)
+                                matched_confidence_score = []
+                                mismatched_confidence_score = []
+
+                                for word in matched_words:
+                                    matched_confidence_score.append(
+                                        word.get("score", 0)
+                                    )
+                                for word in mismatched_words:
+                                    mismatched_confidence_score.append(
+                                        word.get("score", 0)
+                                    )
+
+                                result["total_words"] = len(transcript_segments)
+                                result["matched_words"] = len(matched_words)
+                                result["mismatched_words"] = len(mismatched_words)
+                                result["matched_words_wo_punc"] = len(matched_wo_punc)
+                                result.update(
+                                    get_score_percentage(
+                                        matched_confidence_score, "matched"
+                                    )
+                                )
+                                result["total_matched (%)"] = (
+                                    len(matched_words) / len(transcript_segments)
+                                ) * 100
+                                result.update(
+                                    get_score_percentage(
+                                        mismatched_confidence_score, "mismatched"
+                                    )
+                                )
+                                result["total_mismatched (%)"] = (
+                                    len(mismatched_words) / len(transcript_segments)
+                                ) * 100
+
+                                result.update(
+                                    get_score_percentage(
+                                        fuzzy_unmatched_score, "fuzzy_unmatched"
+                                    )
+                                )
+
+                                mismatched_file_path = os.path.join(
+                                    file_dir,
+                                    f"{unique_key}_{config_key}_mismatched_transcript.json",
+                                )
+                                # Option 1: Using json.dump() to write to a file
+                                json_string_mismatched = json.dumps(
+                                    mismatched_words, indent=2
+                                )  # The 'indent' parameter adds formatting for readability
+                                with open(mismatched_file_path, "w") as json_file:
+                                    json_file.write(json_string_mismatched)
+
+                                matched_wo_punc_file = os.path.join(
+                                    file_dir,
+                                    f"{unique_key}_{config_key}_matched_wo_punc.json",
+                                )
+                                # Option 1: Using json.dump() to write to a file
+                                json_string_matched_wo_punc = json.dumps(
+                                    matched_wo_punc, indent=2
+                                )  # The 'indent' parameter adds formatting for readability
+                                with open(matched_wo_punc_file, "w") as json_file:
+                                    json_file.write(json_string_matched_wo_punc)
+
+                                rows.append(result)
+                            except Exception as ex:
+                                print(ex)
+                                continue
+
+                        df = pd.DataFrame(rows)
+                        # df["transcript"] = json.dumps(transcript)
+                        excel_file_name = f"/Users/I1597/Downloads/output_med.xlsx"
+
+                        # Load the existing Excel file
+                        if os.path.exists(excel_file_name):
+
+                            # Create a new ExcelWriter with the existing file
+                            with pd.ExcelWriter(
+                                excel_file_name, engine="openpyxl", mode="a"
+                            ) as writer:
+                                # Write the DataFrame to a new sheet (you can specify the sheet name)
+                                df.to_excel(writer, sheet_name=config_key, index=False)
+                        else:
+                            df.to_excel(
+                                excel_file_name, sheet_name=config_key, index=False
+                            )
+
+                        # df.to_excel(excel_file, sheet_name=config_key, index=False)
+                except Exception as ex:
+                    import traceback
+
+                    traceback.print_exc()
+                    print("error", unique_key, str(ex))
