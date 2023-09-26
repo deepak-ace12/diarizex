@@ -118,6 +118,8 @@ for model_size in model_sizes:
                             "duration": round(audio_file.duration_seconds, 2),
                         }
 
+                        fillers = ["um", "Um", "um,", "Um,", "Uh", "uh", "Uh,", "uh,"]
+
                         txt = ""
                         try:
                             with open(
@@ -127,8 +129,17 @@ for model_size in model_sizes:
                                 file_contents = file.read()
                                 for line in file_contents.splitlines():
                                     if line:
-                                        txt += line.replace("P: ", " ").replace(
-                                            "D: ", " "
+                                        txt += (
+                                            line.replace("P: ", " ")
+                                            .replace("D: ", " ")
+                                            .replace("uh", "")
+                                            .replace("Uh", "")
+                                            .replace("uh,", "")
+                                            .replace("Uh,", "")
+                                            .replace("um", "")
+                                            .replace("Um", "")
+                                            .replace("um,", "")
+                                            .replace("Um,", "")
                                         )
                         except Exception as ex:
                             print("Read Error", ex)
@@ -146,11 +157,17 @@ for model_size in model_sizes:
                                 [
                                     segment.get("word", "")
                                     for segment in transcript.get("word_segments", [])
+                                    if segment.get("word") not in fillers
                                 ]
                             )
 
                         transcription_confidence_score = []
-                        transcript_segments = transcript["word_segments"]
+
+                        transcript_segments = [
+                            segment
+                            for segment in transcript["word_segments"]
+                            if segment.get("word") not in fillers
+                        ]
                         for word in transcript_segments:
                             transcription_confidence_score.append(word.get("score", 0))
                         result.update(
@@ -164,58 +181,35 @@ for model_size in model_sizes:
                         fuzzy_unmatched_score = []
                         matched_words = []
                         mismatched_words = []
-                        matched_wo_punc = []
-                        original_segments = (
-                            txt.replace("uh", "")
-                            .replace("Uh", "")
-                            .replace("uh,", "")
-                            .replace("Uh,", "")
-                            .replace("um", "")
-                            .replace("Um", "")
-                            .replace("um,", "")
-                            .replace("Um,", "")
-                            .strip()
-                            .split()
-                        )
+                        punctuation_errors = []
+                        original_segments = txt.strip().split()
 
+                        window_size = abs(
+                            len(original_segments) - len(transcript_segments)
+                        )
                         for i in range(
                             min(len(original_segments), len(transcript_segments))
                         ):
                             segment = transcript_segments[i]
-                            word1 = segment.get("word")
+                            word1 = segment.get("word", "")
                             matched = False
                             best_matched_word = ""
                             max_similarity_score = 0
-                            if word1 in [
-                                "um",
-                                "Um",
-                                "um,",
-                                "Um,",
-                                "Uh",
-                                "uh",
-                                "Uh,",
-                                "uh,",
-                            ]:
-                                continue
                             for j in range(
-                                max(i - 10, 0), min(i + 30 + 1, len(original_segments))
+                                max(i - window_size, 0),
+                                min(i + window_size + 1, len(original_segments)),
                             ):
                                 word2 = original_segments[j]
-                                if word1.lower() == "ok":
-                                    word1 = "okay"
-                                if word2.lower() == "ok":
-                                    word2 = "okay"
-                                if word1.lower().replace("?", "").replace(
-                                    ",", ""
-                                ).replace(".", "") == word2.lower().replace(
-                                    "?", ""
-                                ).replace(
-                                    ",", ""
-                                ).replace(
-                                    ".", ""
+                                if (
+                                    "okay" not in word1.lower()
+                                    and "ok" in word1.lower()
                                 ):
-                                    segment["compared_word"] = word2
-                                    matched_wo_punc.append(segment)
+                                    word1 = word1.lower().replace("ok", "okay")
+                                if (
+                                    "okay" not in word2.lower()
+                                    and "ok" in word2.lower()
+                                ):
+                                    word2 = word2.lower().replace("ok", "okay")
                                 if word1.lower() == word2.lower():
                                     matched = True
                                     break
@@ -228,45 +222,15 @@ for model_size in model_sizes:
                                     if match_ratio > max_similarity_score:
                                         max_similarity_score = match_ratio
                                         best_matched_word = word2
-                            # i = 0
-                            # while i < len(transcript_segments):
-                            # # for i, segment in enumerate(transcript_segments):
-                            #     segment = transcript_segments[i]
-                            #     word1 = segment.get("word")
-                            #     if word1 in ["um", "Um", "um,", "Um,", "Uh", "uh", "Uh,", "uh,"]:
-                            #         i += 1
-                            #         continue
-                            #     matched = False
-                            #     best_matched_word = ""
-                            #     max_similarity_score = 0
-                            #     for k in range(max(i - 15, 0), min(i + 30 + 1, len(original_segments))):
-                            #         word2 = original_segments[k]
-                            #         if word1.lower() == "ok":
-                            #             word1 = "okay"
-                            #         if word2.lower() == "ok":
-                            #             word2 = "okay"
 
-                            #         if word1.lower().replace("?", "").replace(",", "").replace(".", "") == word2.lower().replace("?", "").replace(",", "").replace(".", ""):
-                            #             segment["compared_word"] = word2
-                            #             matched_wo_punc.append(segment)
-                            #         if word1.lower() == word2.lower():
-                            #             matched = True
-                            #             break
-                            #         else:
-                            #             match_ratio = fuzz.ratio(word1.lower(), word2.lower())
-                            #             # if match_ratio >= 80:  avoid punctuation
-                            #             #     matched = True
-                            #             if match_ratio > max_similarity_score:
-                            #                 max_similarity_score = match_ratio
-                            #                 best_matched_word = word2
-
-                            # import ipdb; ipdb.set_trace()
                             og_text = " ".join(
                                 [
                                     original_segments[index]
                                     for index in range(
-                                        max(i - 10, 0),
-                                        min(i + 30 + 1, len(original_segments)),
+                                        max(i - window_size, 0),
+                                        min(
+                                            i + window_size + 1, len(original_segments)
+                                        ),
                                     )
                                 ]
                             )
@@ -274,8 +238,11 @@ for model_size in model_sizes:
                                 [
                                     transcript_segments[index].get("word")
                                     for index in range(
-                                        max(i - 10, 0),
-                                        min(i + 30 + 1, len(transcript_segments)),
+                                        max(i - window_size, 0),
+                                        min(
+                                            i + window_size + 1,
+                                            len(transcript_segments),
+                                        ),
                                     )
                                 ]
                             )
@@ -294,16 +261,36 @@ for model_size in model_sizes:
                         mismatched_confidence_score = []
                         matched_without_punc = []
                         print("mismatched", len(mismatched_words))
-                        for word in matched_words:
-                            matched_confidence_score.append(word.get("score", 0))
-                        for word in mismatched_words:
-                            mismatched_confidence_score.append(word.get("score", 0))
-                        for word in matched_wo_punc:
-                            matched_without_punc.append(word.get("score", 0))
+                        for segment in matched_words:
+                            matched_confidence_score.append(segment.get("score", 0))
 
-                        result["total_words"] = len(transcript_segments)
+                        for segment in mismatched_words:
+                            word = segment.get("word", "")
+                            best_match = segment.get("best_matched_word", "")
+                            if best_match and word.lower().replace("?", "").replace(
+                                ",", ""
+                            ).replace(".", "") == best_match.lower().replace(
+                                "?", ""
+                            ).replace(
+                                ",", ""
+                            ).replace(
+                                ".", ""
+                            ):
+                                punctuation_errors.append(segment)
+
+                            mismatched_confidence_score.append(segment.get("score", 0))
+
+                        matched_wo_punc = matched_words + punctuation_errors
+
+                        for segment in matched_wo_punc:
+                            matched_without_punc.append(segment.get("score", 0))
+
+                        result["total_words_ts"] = len(transcript_segments)
+                        result["total_words_og"] = len(original_segments)
                         result["matched_words"] = len(matched_words)
                         result["mismatched_words"] = len(mismatched_words)
+                        result["punctuation_errors"] = len(punctuation_errors)
+                        result["matched_words_wo_punc"] = len(matched_wo_punc)
                         result.update(
                             get_score_percentage(matched_confidence_score, "matched")
                         )
@@ -331,7 +318,7 @@ for model_size in model_sizes:
                             )
                         )
 
-                        file_dir2 = f"/Users/I1597/Downloads/new_performance_{mapping.get(model_size)}/{config_key}"
+                        file_dir2 = f"/Users/I1597/Downloads/performance_metrics/new_performance_{mapping.get(model_size)}/{config_key}"
                         if not os.path.exists(file_dir2):
                             os.makedirs(file_dir2)
                         mismatched_file_path = os.path.join(
@@ -346,11 +333,12 @@ for model_size in model_sizes:
                             json_file.write(json_string_mismatched)
 
                         matched_wo_punc_file = os.path.join(
-                            file_dir2, f"{unique_key}_{config_key}_matched_wo_punc.json"
+                            file_dir2,
+                            f"{unique_key}_{config_key}_punctuation_errors.json",
                         )
                         # # Option 1: Using json.dump() to write to a file
                         json_string_matched_wo_punc = json.dumps(
-                            matched_wo_punc, indent=2
+                            punctuation_errors, indent=2
                         )  # The 'indent' parameter adds formatting for readability
                         with open(matched_wo_punc_file, "w") as json_file:
                             json_file.write(json_string_matched_wo_punc)
@@ -364,9 +352,29 @@ for model_size in model_sizes:
                         result[
                             "misatched_transcript_file"
                         ] = mismatched_file_path.replace("/Users/I1597/Downloads/", "/")
-                        result["matched_wo_punc_file"] = matched_wo_punc_file.replace(
-                            "/Users/I1597/Downloads/", "/"
+                        result[
+                            "punctuation_errors_file"
+                        ] = matched_wo_punc_file.replace("/Users/I1597/Downloads/", "/")
+
+                        common_transcript_file = os.path.join(
+                            file_dir2,
+                            f"{unique_key}_{config_key}_common_transcript_file.txt",
                         )
+
+                        with open(common_transcript_file, "w") as common_file:
+                            common_file.write(
+                                "#####################  Original Script #########################"
+                            )
+                            common_file.write("\n\n")
+                            common_file.write(txt)
+                            common_file.write("\n\n\n\n")
+                            common_file.write(
+                                "##################### Transcribed Script #########################"
+                            )
+                            common_file.write("\n\n")
+                            common_file.write(txt2)
+
+                        result["common_transcript_file"] = common_transcript_file
                         rows.append(result)
                     except Exception as ex:
                         import traceback
@@ -376,7 +384,7 @@ for model_size in model_sizes:
 
                 df = pd.DataFrame(rows)
                 # df["transcript"] = json.dumps(transcript)
-                excel_file_name = f"/Users/I1597/Documents/output_{model_size}.xlsx"
+                excel_file_name = f"/Users/I1597/Downloads/performance_metrics/output_{model_size}.xlsx"
                 # Load the existing Excel file
                 if os.path.exists(excel_file_name):
 
