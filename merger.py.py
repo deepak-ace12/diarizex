@@ -25,57 +25,64 @@ except Exception as ex:
 
 import pandas as pd
 
-original_excel_file = "/Users/I1597/Downloads/performance_metrics/output_medium.xlsx"
-xls = pd.ExcelFile(original_excel_file)
-sheets = [
-    "",
-    "CAR0001",
-    "CAR0002",
-    "CAR0003",
-    "GAS0003",
-    "GAS0004",
-    "GAS0007",
-    "MSK0001",
-    "MSK0003",
-    "MSK0004",
-    "RES0001",
-    "RES0003",
-    "RES0127",
-    "RES0128",
-    "MSK0042",
-    "GEN0001",
-]
-for n in range(1, len(sheets)):
-    rows_list = []
-    for sheet_name in xls.sheet_names:
-        print(n, sheet_name)
-        if sheet_name != "SheetName":
-            df = pd.read_excel(original_excel_file, sheet_name=sheet_name)
-            rows_list.append(df.iloc[n - 1])
-    result_df = pd.DataFrame(rows_list)
-    if n == 1:
-        with pd.ExcelWriter(
-            "/Users/I1597/Downloads/performance_metrics/output_medium_combined.xlsx",
-            engine="openpyxl",
-        ) as writer:
-            result_df.to_excel(writer, sheet_name=sheets[n], index=False)
-    else:
-        with pd.ExcelWriter(
-            "/Users/I1597/Downloads/performance_metrics/output_medium_combined.xlsx",
-            engine="openpyxl",
-            mode="a",
-        ) as writer:
-            result_df.to_excel(writer, sheet_name=sheets[n], index=False)
-    print()
-    print("#" * 100)
+files = {
+    "large-v1": "/Users/I1597/Downloads/new_performance_metrics/output_large-v1.xlsx",
+    "medium": "/Users/I1597/Downloads/new_performance_metrics/output_medium.xlsx",
+    "large-v2": "/Users/I1597/Downloads/new_performance_metrics/output_large-v2.xlsx",
+}
+
+for key, original_excel_file in files.items():
+    print(original_excel_file)
+    xls = pd.ExcelFile(original_excel_file)
+    sheets = [
+        "",
+        "CAR0001",
+        "CAR0002",
+        "CAR0003",
+        "GAS0003",
+        "GAS0004",
+        "GAS0007",
+        "MSK0001",
+        "MSK0003",
+        "MSK0004",
+        "RES0001",
+        "RES0003",
+        "RES0127",
+        "RES0128",
+        "MSK0042",
+        "GEN0001",
+    ]
+    for n in range(1, len(sheets)):
+        rows_list = []
+        for sheet_name in xls.sheet_names:
+            print(n, sheet_name)
+            if sheet_name != "SheetName":
+                df = pd.read_excel(original_excel_file, sheet_name=sheet_name)
+                rows_list.append(df.iloc[n - 1])
+        result_df = pd.DataFrame(rows_list)
+        if n == 1:
+            with pd.ExcelWriter(
+                f"/Users/I1597/Downloads/new_performance_metrics/output_{key}_combined.xlsx",
+                engine="openpyxl",
+            ) as writer:
+                result_df.to_excel(writer, sheet_name=sheets[n], index=False)
+        else:
+            with pd.ExcelWriter(
+                f"/Users/I1597/Downloads/new_performance_metrics/output_{key}_combined.xlsx",
+                engine="openpyxl",
+                mode="a",
+            ) as writer:
+                result_df.to_excel(writer, sheet_name=sheets[n], index=False)
+        print()
+        print("#" * 100)
 
 
 # merge based on models
 import pandas as pd
 
-med = "/Users/I1597/Downloads/performance_metrics/output_medium_combined.xlsx"
-v1 = "/Users/I1597/Downloads/performance_metrics/output_large_v1_combined.xlsx"
-v2 = "/Users/I1597/Downloads/performance_metrics/output_large_v2_combined.xlsx"
+med = "/Users/I1597/Downloads/new_performance_metrics/output_medium_combined.xlsx"
+v1 = "/Users/I1597/Downloads/new_performance_metrics/output_large-v1_combined.xlsx"
+v2 = "/Users/I1597/Downloads/new_performance_metrics/output_large-v2_combined.xlsx"
 
 xls_med = pd.ExcelFile(med)
 xls_v1 = pd.ExcelFile(v1)
@@ -115,16 +122,30 @@ for sheet_name in sheets:
     result_df = pd.DataFrame(rows_list)
     if sheet_name == "CAR0001":
         with pd.ExcelWriter(
-            "/Users/I1597/Downloads/performance_metrics/output_med_v1_v2_combined.xlsx",
+            "/Users/I1597/Downloads/new_performance_metrics/output_med_v1_v2_combined.xlsx",
             engine="openpyxl",
         ) as writer:
             result_df.to_excel(writer, sheet_name=sheet_name, index=False)
     else:
         with pd.ExcelWriter(
-            "/Users/I1597/Downloads/performance_metrics/output_med_v1_v2_combined.xlsx",
+            "/Users/I1597/Downloads/new_performance_metrics/output_med_v1_v2_combined.xlsx",
             engine="openpyxl",
             mode="a",
         ) as writer:
             result_df.to_excel(writer, sheet_name=sheet_name, index=False)
         print()
         print("#" * 100)
+
+
+from pydub import AudioSegment
+
+audio = AudioSegment.from_file(
+    "/Users/I1597/Downloads/Data/Audio Recordings/GAS0007.mp3"
+)
+segment_length = 100  # in milliseconds
+segments = []
+for start in range(0, len(audio), segment_length):
+    end = start + segment_length
+    segment = audio[start:end]
+    text = f"{start/1000} - {end/1000}: rms: {segment.rms}, dBFS: {round(segment.dBFS, 2)}, max_dBFS: {round(segment.max_dBFS, 2)}, channels: {segment.channels}"
+    segments.append(text)

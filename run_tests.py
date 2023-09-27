@@ -292,17 +292,17 @@ audios = [
 ]
 
 audios = [
-    "/Users/I1597/Downloads/Data/Audio Recordings/CAR0001.mp3",
-    "/Users/I1597/Downloads/Data/Audio Recordings/CAR0002.mp3",
-    "/Users/I1597/Downloads/Data/Audio Recordings/CAR0003.mp3",
-    "/Users/I1597/Downloads/Data/Audio Recordings/GAS0003.mp3",
-    "/Users/I1597/Downloads/Data/Audio Recordings/GAS0004.mp3",
-    "/Users/I1597/Downloads/Data/Audio Recordings/GAS0007.mp3",
-    "/Users/I1597/Downloads/Data/Audio Recordings/MSK0001.mp3",
-    "/Users/I1597/Downloads/Data/Audio Recordings/MSK0003.mp3",
-    "/Users/I1597/Downloads/Data/Audio Recordings/MSK0004.mp3",
-    "/Users/I1597/Downloads/Data/Audio Recordings/RES0001.mp3",
-    "/Users/I1597/Downloads/Data/Audio Recordings/RES0003.mp3",
+    # "/Users/I1597/Downloads/Data/Audio Recordings/CAR0001.mp3",
+    # "/Users/I1597/Downloads/Data/Audio Recordings/CAR0002.mp3",
+    # "/Users/I1597/Downloads/Data/Audio Recordings/CAR0003.mp3",
+    # "/Users/I1597/Downloads/Data/Audio Recordings/GAS0003.mp3",
+    # "/Users/I1597/Downloads/Data/Audio Recordings/GAS0004.mp3",
+    # "/Users/I1597/Downloads/Data/Audio Recordings/GAS0007.mp3",
+    # "/Users/I1597/Downloads/Data/Audio Recordings/MSK0001.mp3",
+    # "/Users/I1597/Downloads/Data/Audio Recordings/MSK0003.mp3",
+    # "/Users/I1597/Downloads/Data/Audio Recordings/MSK0004.mp3",
+    # "/Users/I1597/Downloads/Data/Audio Recordings/RES0001.mp3",
+    # "/Users/I1597/Downloads/Data/Audio Recordings/RES0003.mp3",
     "/Users/I1597/Downloads/Data/Audio Recordings/RES0127.mp3",
     "/Users/I1597/Downloads/Data/Audio Recordings/RES0128.mp3",
     "/Users/I1597/Downloads/Data/Audio Recordings/MSK0042.mp3",
@@ -332,10 +332,10 @@ def get_score_percentage(confidence_score, key):
     }
 
 
-temperatures = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
-model_sizes = ["medium"]
-nsts = [0.2, 0.4, 0.6, 0.8]
-beam_sizes = [1, 5]
+temperatures = [0.8, 1.0]
+model_sizes = ["large-v2"]
+nsts = [0.4, 0.6]
+beam_sizes = [5]
 for model_size in model_sizes:
     for temperature in temperatures:
         for beam_size in beam_sizes:
@@ -397,7 +397,7 @@ for model_size in model_sizes:
                                 result.update(response.json())
                                 transcript = result.pop("transcript")
                                 config_key = f"{model_size}_b{beam_size}_sr{result.get('sample_rate')}_t{str(temperature).replace('.', '')}_nst{str(nst).replace('.', '')}"
-                                file_dir = f"/Users/I1597/Downloads/performance_med/{config_key}"
+                                file_dir = f"/Users/I1597/Downloads/performance_v2/{config_key}"
                                 if not os.path.exists(file_dir):
                                     os.makedirs(file_dir)
 
@@ -422,13 +422,13 @@ for model_size in model_sizes:
                                 transcript_segments = transcript.get("word_segments")
                                 original_segments = (
                                     txt.replace("uh", "")
-                                    .replace("Uh", "")
-                                    .replace("uh,", "")
                                     .replace("Uh,", "")
-                                    .replace("um", "")
-                                    .replace("Um", "")
+                                    .replace("uh,", "")
+                                    .replace("Uh", "")
                                     .replace("um,", "")
                                     .replace("Um,", "")
+                                    .replace("um", "")
+                                    .replace("Um", "")
                                     .strip()
                                     .split()
                                 )
@@ -439,14 +439,14 @@ for model_size in model_sizes:
                                     segment = transcript_segments[i]
                                     word1 = segment.get("word")
                                     if word1 in [
-                                        "um",
-                                        "Um",
                                         "um,",
                                         "Um,",
-                                        "Uh",
-                                        "uh",
+                                        "um",
+                                        "Um",
                                         "Uh,",
                                         "uh,",
+                                        "Uh",
+                                        "uh",
                                     ]:
                                         i += 1
                                         continue
@@ -594,23 +594,23 @@ for model_size in model_sizes:
                                 print(ex)
                                 continue
 
-                        df = pd.DataFrame(rows)
-                        # df["transcript"] = json.dumps(transcript)
-                        excel_file_name = f"/Users/I1597/Downloads/output_med.xlsx"
+                        # df = pd.DataFrame(rows)
+                        # # df["transcript"] = json.dumps(transcript)
+                        # excel_file_name = f"/Users/I1597/Downloads/output_med.xlsx"
 
-                        # Load the existing Excel file
-                        if os.path.exists(excel_file_name):
+                        # # Load the existing Excel file
+                        # if os.path.exists(excel_file_name):
 
-                            # Create a new ExcelWriter with the existing file
-                            with pd.ExcelWriter(
-                                excel_file_name, engine="openpyxl", mode="a"
-                            ) as writer:
-                                # Write the DataFrame to a new sheet (you can specify the sheet name)
-                                df.to_excel(writer, sheet_name=config_key, index=False)
-                        else:
-                            df.to_excel(
-                                excel_file_name, sheet_name=config_key, index=False
-                            )
+                        #     # Create a new ExcelWriter with the existing file
+                        #     with pd.ExcelWriter(
+                        #         excel_file_name, engine="openpyxl", mode="a"
+                        #     ) as writer:
+                        #         # Write the DataFrame to a new sheet (you can specify the sheet name)
+                        #         df.to_excel(writer, sheet_name=config_key, index=False)
+                        # else:
+                        #     df.to_excel(
+                        #         excel_file_name, sheet_name=config_key, index=False
+                        #     )
 
                         # df.to_excel(excel_file, sheet_name=config_key, index=False)
                 except Exception as ex:

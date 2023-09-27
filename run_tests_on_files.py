@@ -6,6 +6,7 @@ import os
 import json
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import CountVectorizer
 import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
@@ -57,7 +58,7 @@ def get_jaccard_similarity(text1, text2):
     return round(jaccard_similarity * 100, 2)
 
 
-def get_cosine_similarity(text1, text2):
+def get_cosine_similarity_tfidf(text1, text2):
     vectorizer = TfidfVectorizer()
 
     # Compute TF-IDF vectors for the two texts
@@ -65,6 +66,13 @@ def get_cosine_similarity(text1, text2):
 
     # Compute cosine similarity between the two TF-IDF vectors
     cosine_sim = cosine_similarity(tfidf_matrix[0], tfidf_matrix[1])
+    return round(cosine_sim[0][0] * 100, 2)
+
+
+def get_cosine_similarity_count(text1, text2):
+    vectorizer = CountVectorizer()
+    X = vectorizer.fit_transform([text1, text2])
+    cosine_sim = cosine_similarity(X[0], X[1])
     return round(cosine_sim[0][0] * 100, 2)
 
 
@@ -90,7 +98,7 @@ def get_score_percentage(confidence_score, key):
 
 
 temperatures = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
-model_sizes = ["large-v2", "large-v1", "medium"]
+model_sizes = ["large-v2"]
 mapping = {"large-v2": "v2", "large-v1": "v1", "medium": "med"}
 
 nsts = [0.2, 0.4, 0.6, 0.8]
@@ -118,7 +126,7 @@ for model_size in model_sizes:
                             "duration": round(audio_file.duration_seconds, 2),
                         }
 
-                        fillers = ["um", "Um", "um,", "Um,", "Uh", "uh", "Uh,", "uh,"]
+                        fillers = ["um,", "Um,", "um", "Um", "Uh,", "uh,", "Uh", "uh"]
 
                         txt = ""
                         try:
@@ -132,18 +140,19 @@ for model_size in model_sizes:
                                         txt += (
                                             line.replace("P: ", " ")
                                             .replace("D: ", " ")
-                                            .replace("uh", "")
-                                            .replace("Uh", "")
                                             .replace("uh,", "")
                                             .replace("Uh,", "")
-                                            .replace("um", "")
-                                            .replace("Um", "")
+                                            .replace("uh", "")
+                                            .replace("Uh", "")
                                             .replace("um,", "")
                                             .replace("Um,", "")
+                                            .replace("um", "")
+                                            .replace("Um", "")
                                         )
                         except Exception as ex:
                             print("Read Error", ex)
                             continue
+                        txt = txt.replace("  ", " ")
                         config_key = f"{model_size}_b{beam_size}_sr16000_t{str(temperature).replace('.', '')}_nst{str(nst).replace('.', '')}"
                         file_dir = f"/Users/I1597/Downloads/performance_{mapping.get(model_size)}/{config_key}"
                         file_path = os.path.join(
@@ -175,7 +184,13 @@ for model_size in model_sizes:
                                 transcription_confidence_score, "confidence"
                             )
                         )
-                        result["scikit-similarity"] = get_cosine_similarity(txt, txt2)
+
+                        result[
+                            "cosine-similarity_scikit_tfidf"
+                        ] = get_cosine_similarity_tfidf(txt, txt2)
+                        result[
+                            "cosine-similarity_scikit_count"
+                        ] = get_cosine_similarity_count(txt, txt2)
                         result["jaccard_similarity"] = get_jaccard_similarity(txt, txt2)
 
                         fuzzy_unmatched_score = []
@@ -260,9 +275,22 @@ for model_size in model_sizes:
                         matched_confidence_score = []
                         mismatched_confidence_score = []
                         matched_without_punc = []
+                        mismatched_dbfs = []
+                        matched_dbfs = []
                         print("mismatched", len(mismatched_words))
                         for segment in matched_words:
                             matched_confidence_score.append(segment.get("score", 0))
+                            try:
+                                cut_audio = audio_file[
+                                    segment.get("start", 0)
+                                    * 1000 : segment.get("end", 0)
+                                    * 1000
+                                ]
+                                if cut_audio.rms > 0:
+                                    dbfs = round(cut_audio.dBFS, 2)
+                                    matched_dbfs.append(dbfs)
+                            except Exception as ex:
+                                print(ex)
 
                         for segment in mismatched_words:
                             word = segment.get("word", "")
@@ -277,7 +305,29 @@ for model_size in model_sizes:
                                 ".", ""
                             ):
                                 punctuation_errors.append(segment)
-
+                                try:
+                                    cut_audio = audio_file[
+                                        segment.get("start", 0)
+                                        * 1000 : segment.get("end", 0)
+                                        * 1000
+                                    ]
+                                    if cut_audio.rms > 0:
+                                        dbfs = round(cut_audio.dBFS, 2)
+                                        matched_dbfs.append(dbfs)
+                                except Exception as ex:
+                                    print(ex)
+                            else:
+                                try:
+                                    cut_audio = audio_file[
+                                        segment.get("start", 0)
+                                        * 1000 : segment.get("end", 0)
+                                        * 1000
+                                    ]
+                                    if cut_audio.rms > 0:
+                                        dbfs = round(cut_audio.dBFS, 2)
+                                        mismatched_dbfs.append(dbfs)
+                                except Exception as ex:
+                                    print(ex)
                             mismatched_confidence_score.append(segment.get("score", 0))
 
                         matched_wo_punc = matched_words + punctuation_errors
@@ -291,10 +341,22 @@ for model_size in model_sizes:
                         result["mismatched_words"] = len(mismatched_words)
                         result["punctuation_errors"] = len(punctuation_errors)
                         result["matched_words_wo_punc"] = len(matched_wo_punc)
+                        if mismatched_dbfs:
+                            arr = np.array(mismatched_dbfs)
+                            low_decibels = (np.sum(arr <= -40) / len(arr)) * 100
+                            result["mismatched_words_wo_punc_dbfs_lt_40 (%)"] = round(
+                                low_decibels, 2
+                            )
+                        if matched_dbfs:
+                            arr = np.array(matched_dbfs)
+                            low_decibels = (np.sum(arr <= -40) / len(arr)) * 100
+                            result["matched_words_wo_punc_dbfs_lt_40 (%)"] = round(
+                                low_decibels, 2
+                            )
+
                         result.update(
                             get_score_percentage(matched_confidence_score, "matched")
                         )
-                        result["matched_words_wo_punc"] = len(matched_wo_punc)
                         result.update(
                             get_score_percentage(
                                 matched_without_punc, "matched_wo_punc"
@@ -303,14 +365,26 @@ for model_size in model_sizes:
                         result["total_matched (%)"] = round(
                             (len(matched_words) / len(transcript_segments)) * 100, 2
                         )
+                        result["total_matched_wo_punc (%)"] = round(
+                            (len(matched_wo_punc) / len(transcript_segments)) * 100, 2
+                        )
                         result.update(
                             get_score_percentage(
                                 mismatched_confidence_score, "mismatched"
                             )
                         )
-                        result["total_mismatched (%)"] = (
-                            len(mismatched_words) / len(transcript_segments)
-                        ) * 100
+                        result["total_mismatched (%)"] = round(
+                            (len(mismatched_words) / len(transcript_segments)) * 100, 2
+                        )
+
+                        result["total_mismatched_wo_punc (%)"] = round(
+                            (
+                                (len(mismatched_words) - len(punctuation_errors))
+                                / len(transcript_segments)
+                            )
+                            * 100,
+                            2,
+                        )
 
                         result.update(
                             get_score_percentage(
@@ -318,7 +392,7 @@ for model_size in model_sizes:
                             )
                         )
 
-                        file_dir2 = f"/Users/I1597/Downloads/performance_metrics/new_performance_{mapping.get(model_size)}/{config_key}"
+                        file_dir2 = f"/Users/I1597/Downloads/new_performance_metrics/new_performance_{mapping.get(model_size)}/{config_key}"
                         if not os.path.exists(file_dir2):
                             os.makedirs(file_dir2)
                         mismatched_file_path = os.path.join(
@@ -384,7 +458,7 @@ for model_size in model_sizes:
 
                 df = pd.DataFrame(rows)
                 # df["transcript"] = json.dumps(transcript)
-                excel_file_name = f"/Users/I1597/Downloads/performance_metrics/output_{model_size}.xlsx"
+                excel_file_name = f"/Users/I1597/Downloads/new_performance_metrics/output_{model_size}.xlsx"
                 # Load the existing Excel file
                 if os.path.exists(excel_file_name):
 
