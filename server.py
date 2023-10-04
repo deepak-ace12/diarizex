@@ -1,4 +1,3 @@
-
 # import socketio
 # import eventlet
 
@@ -58,7 +57,6 @@
 #     uvicorn.run("server:app", host='0.0.0.0', port=8000, reload=True)
 
 
-
 from typing import Any
 
 import uvicorn
@@ -82,25 +80,28 @@ app.mount("/", socket_app)  # Here we mount socket app to main fastapi app
 
 @sio.on("connect")
 async def connect(sid, env):
-    print("on connect")
+    print("on connect", sid)
 
 
 @sio.on("direct")
 async def direct(sid, msg):
-    print(f"direct {msg}")
-    await sio.emit("event_name", msg, room=sid)  # we can send message to specific sid
+    print(f"direct {msg} -{sid}")
+    await sio.emit("event_name1", msg, room=sid)  # we can send message to specific sid
 
 
 @sio.on("broadcast")
 async def broadcast(sid, msg):
     print(f"broadcast {msg}")
-    await sio.emit("event_name", msg)  # or send to everyone
+    await sio.emit("event_name2", msg, room=sid)  # or send to everyone
 
 
 @sio.on("disconnect")
 async def disconnect(sid):
     print("on disconnect")
 
+@sio.event
+def connect_error(data):
+    print(f"Connection error: {data}")
 
 if __name__ == "__main__":
     kwargs = {"host": "0.0.0.0", "port": 5000}

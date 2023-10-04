@@ -24,7 +24,6 @@
 #     sio.disconnect()
 
 
-
 # import socketio
 # import asyncio
 
@@ -61,23 +60,35 @@
 
 import requests
 import socketio
+import asyncio
+loop = asyncio.get_event_loop()
 
-r = requests.get("http://127.0.0.1:5000/test") # server prints "test"
+
+
+r = requests.get("http://127.0.0.1:5000/test")  # server prints "test"
 cl = socketio.Client()
 cl2 = socketio.Client()
 
 
-@cl.on("event_name")
-def foo(data):
+@cl.event
+def event_name1(data):
     print(f"client 1 {data}")
+    # return "OK", 123
 
 
-@cl2.on("event_name")
-def foo2(data):
+@cl2.event
+def event_name1(data):
     print(f"client 2 {data}")
 
+# async def main():
+cl.connect("http://127.0.0.1:5000/")  # server prints "on connect"
+cl.emit("direct", "msg_1")  # prints client 1 msg_1
 
-cl.connect("http://127.0.0.1:5000/") # server prints "on connect"
+@cl.event
+async def error(data):
+    print(f"Received error: {data}")
+
+# asyncio.run(main())
 cl2.connect("http://127.0.0.1:5000/")
-cl.emit("direct", "msg_1") # prints client 1 msg_1
-cl2.emit("broadcast", "msg_2") # prints client 2 msg_2 and client 1 msg_2
+
+cl2.emit("broadcast", "msg_2")  # prints client 2 msg_2 and client 1 msg_2
