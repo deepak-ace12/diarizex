@@ -98,7 +98,7 @@ def get_score_percentage(confidence_score, key):
 
 
 temperatures = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
-model_sizes = ["large-v2"]
+model_sizes = ["large-v1"]
 mapping = {"large-v2": "v2", "large-v1": "v1", "medium": "med"}
 
 nsts = [0.2, 0.4, 0.6, 0.8]
@@ -356,7 +356,7 @@ for model_size in model_sizes:
                         result["total_mismatched (%)"] = round((
                             len(mismatched_words) / len(transcript_segments)
                         ) * 100, 2)
-
+                        
                         result["total_mismatched_wo_punc (%)"] = round((
                             (len(mismatched_words) - len(punctuation_errors)) / len(transcript_segments)
                         ) * 100, 2)

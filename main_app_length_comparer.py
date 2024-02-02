@@ -22,7 +22,7 @@ app = FastAPI()
 if torch.cuda.is_available():
     device = "cuda"
     batch_size = 32
-    compute_type = "float16"  #
+    compute_type = "float16"
 else:
     device = "cpu"
     batch_size = 16

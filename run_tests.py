@@ -331,7 +331,7 @@ def get_score_percentage(confidence_score, key):
         f"{key}_median": round(median, 2),
     }
 
-
+mapping = {"large-v2": "v2", "large-v1": "v1", "medium": "medium", "base": "base", "small": "small", "tiny": "tiny", "medium.en": "medium_en", "base.en": "base_en", "small.en": "small_en", "tiny.en": "tiny_en"}
 temperatures = [0.8, 1.0]
 model_sizes = ["large-v2"]
 nsts = [0.4, 0.6]
@@ -618,3 +618,49 @@ for model_size in model_sizes:
 
                     traceback.print_exc()
                     print("error", unique_key, str(ex))
+
+
+""""
+
+init_url = "http://localhost:8000/init?beam_size=1&temperature=0.2&no_speech_threshold=0.6&sample_rate=16000&model_size=base"
+init_response = requests.request("POST", init_url, headers={}, data={})
+model_key = init_response.json().get("model_key")
+t_url = f"http://localhost:8000/transcribe?diarize=true&unique_key=abc&model_key={model_key}"
+files = [
+    (
+        "audio_file",
+        (
+            "file",
+            open(audio, "rb"),
+            "application/octet-stream",
+        ),
+    )
+]
+response = requests.request("POST", t_url, headers={}, data={}, files=files)
+url = "http://localhost:8000/transcribe/abc"
+requests.delete(url)
+url = f"http://localhost:8000/model/{model_key}"
+requests.delete(url)
+init_url = "http://localhost:8000/init?beam_size=1&temperature=0.2&no_speech_threshold=0.6&sample_rate=16000&model_size=base"
+init_response = requests.request("POST", init_url, headers={}, data={})
+model_key = init_response.json().get("model_key")
+print("model", model_key)
+def execute():
+    url = f"http://localhost:8000/transcribe?diarize=true&unique_key=abc&model_key={model_key}"
+    abc = []
+    import time
+    for i in range(34):
+        print(i)
+        t1 = time.time()
+        files=[
+            ('audio_file',('file',open(f"/Users/I1597/Downloads/mamoon_sandeep/{i}.wav",'rb'),'application/octet-stream'))
+        ]
+        response = requests.request("POST", url, headers={}, data={}, files=files)
+        res = response.json()
+        abc.append(res)
+        print(res)
+        t2 = time.time()
+        print("total time", (t2-t1))
+        print("*"*100)
+    print(abc)
+"""

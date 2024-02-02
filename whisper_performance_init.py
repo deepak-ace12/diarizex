@@ -7,8 +7,6 @@ import time
 import torch
 import numpy as np
 from pydub.utils import mediainfo
-from pydub import AudioSegment
-
 
 # load_dotenv()
 app = FastAPI()
@@ -59,10 +57,11 @@ async def transcribe(
     beam_size: int,
     temperature: float,
     no_speech_threshold: float,
-    sample_rate: int,
     model_size: str = "large-v2",
+    
 ):
-    local_cache["sample_rate"] = sample_rate
+    print("model_size", model_size)
+
     local_cache["model"] = whisperx.load_model(
         model_size,
         device,
@@ -73,7 +72,7 @@ async def transcribe(
             "temperatures": [temperature],
         },
     )
-    return f"model loaded successfull {model_size}"
+    return "model loaded successfull"
 
 
 def get_word_level_confidence_score(transcript_result):
@@ -85,9 +84,9 @@ def get_word_level_confidence_score(transcript_result):
     percentage_above_90 = np.sum(arr >= 0.9) / len(arr) * 100
     percentage_above_80 = np.sum(arr >= 0.8) / len(arr) * 100
     percentage_above_70 = np.sum(arr >= 0.7) / len(arr) * 100
-    percentage_above_60 = np.sum(arr >= 0.6) / len(arr) * 100
+    percentage_above_60 = np.sum(arr >= 0.6) / len(arr) * 100 
     percentage_above_50 = np.sum(arr >= 0.5) / len(arr) * 100
-    percentage_below_50 = np.sum(arr < 0.5) / len(arr) * 100
+    percentage_below_50 = np.sum(arr < 0.5) / len(arr) * 100      
     median = np.median(arr)
     return {
         "score_above_0.9 (%)": round(percentage_above_90, 2),
@@ -96,32 +95,26 @@ def get_word_level_confidence_score(transcript_result):
         "score_above_0.6 (%)": round(percentage_above_60, 2),
         "score_above_0.5 (%)": round(percentage_above_50, 2),
         "score_below_0.5 (%)": round(percentage_below_50, 2),
-        "median": round(median, 2),
+        "median": round(median, 2)
     }
 
-
 @app.post("/transcribe")
-async def transcribe(audio_file: UploadFile = File(...), unique_key: str = None):
+async def transcribe(
+    audio_file: UploadFile = File(...),
+    unique_key: str = None
+):
     model = local_cache["model"]
     start_time = time.time()
     audio_path = f"{audio_file.filename}"
     with open(audio_path, "wb") as f:
         f.write(await audio_file.read())
     audio_info = mediainfo(audio_path)
-    audio_format = audio_info.get("format_name")
     sample_rate = int(audio_info.get("sample_rate", 0))
-    if sample_rate != local_cache.get("sample_rate"):
-        print("Sample Rate Not Equel")
-        _audio = AudioSegment.from_file(audio_path)
-        new_sample_rate = local_cache.get("sample_rate")
-        audio = _audio.set_frame_rate(new_sample_rate)
-        audio.export(audio_path, format=audio_format)
-        sample_rate = local_cache.get("sample_rate")
-
+    audio_format = audio_info.get("format_name")
     audio_duration = float(audio_info.get("duration", 0))
     audio = whisperx.load_audio(audio_path)
     print(f"Sample rate: {sample_rate} Hz")
-
+    
     try:
         transcript = model.transcribe(audio, batch_size=batch_size)
         if transcript["language"] == "en":
@@ -155,13 +148,12 @@ async def transcribe(audio_file: UploadFile = File(...), unique_key: str = None)
                 return_char_alignments=False,
             )
         end_time = time.time()
-        total_time = end_time - start_time
-        import gc
-
-        gc.collect()
-        torch.cuda.empty_cache()
+        total_time = end_time-start_time
+        import gc; gc.collect(); torch.cuda.empty_cache();
         scores = get_word_level_confidence_score(result)
         output = {
+            "model": whisperx_model_size,
+            "beam_size": whisperx_beam_size,
             "device": device,
             "batch_size": batch_size,
             "compute_type": compute_type,
@@ -173,7 +165,8 @@ async def transcribe(audio_file: UploadFile = File(...), unique_key: str = None)
         }
         output.update(scores)
         output["transcript"] = result
-        return " ".join([segment.get("text") for segment in result.get("segments")])
+        print("output", output)
+        return output
     except Exception as ex:
         import traceback
 
